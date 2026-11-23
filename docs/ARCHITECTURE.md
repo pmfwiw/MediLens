@@ -69,31 +69,72 @@ Data (GRDB)   Vision (Vision/CoreImage)
 - Domain은 SwiftUI, GRDB, Vision을 import하지 않는다 → 단위 테스트가 쉽고 UI/DB 교체 가능.
 - Data/Vision이 Domain의 프로토콜(`PillRepositoryProtocol`, `PillImageAnalyzing`)을 구현.
 
-## DB 스키마 (초안)
+## 데이터 소스: 식약처 의약품 낱알식별 정보 API (실측 결과)
+- 엔드포인트: `https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService03/getMdcinGrnIdntfcInfoList03`
+- 파라미터: `serviceKey`, `pageNo`, `numOfRows`(**최대 500**), `type=json`
+- 전체 25,517건(ITEM_SEQ 중복 17건 → upsert 필수), 500건씩 52회 호출로 전체 수집 가능
+- 이미지: 전부 `https://nedrug.mfds.go.kr/...` (HTTPS, ATS 설정 불필요)
+- **API 키는 레포에 커밋하지 않는다** (환경 변수 `DATA_GO_KR_KEY` 또는 gitignore된 설정 파일)
+
+### 필드 특성 (DB 설계에 반영)
+| 필드 | 특성 |
+|---|---|
+| DRUG_SHAPE | 원형, 타원형, 장방형, 기타, 팔각형, 사각형, 삼각형, 마름모형, 육각형, 오각형, 반원형 (11종) |
+| COLOR_CLASS1/2 | 하양, 분홍, 노랑 등. **"노랑, 투명"처럼 복합 값 존재**, CLASS2는 약 16%만 값 있음 |
+| PRINT_FRONT/BACK | 각인. 앞면 99%, 뒷면 49%. **"분할선", "마크" 같은 토큰이 섞임** (예: `J분할선W`) → 정규화 필요 |
+| LINE_FRONT/BACK | `-`, `+`, `기타`, null |
+| MARK_CODE_* | 마크 이미지 정보(약 9%), 보조용 |
+| LENG_LONG/SHORT/THICK | 문자열 mm. 일부 null |
+| FORM_CODE_NAME | 필름코팅정, 나정, 경질캡슐제 등 |
+| IMG_REGIST_TS | 이미지 등록일 (YYYYMMDD), 전 건 존재, 최신 2026-11-19 |
+| CHANGE_DATE | 변경일, 약 8% null |
+
+### 증분 동기화 제약 (실측)
+- 날짜 조건은 **`img_regist_ts`만 동작하며 "해당 일자 정확 일치"** 이다. 범위(이상/이하) 조회 불가.
+- `change_date`, `item_permit_date` 등 다른 날짜 파라미터는 **무시되고 전체가 반환**된다.
+- 따라서 `last_synced_date` 다음 날부터 오늘까지 **하루씩 반복 호출**한다. (하루 데이터는 대체로 1~10건 수준)
+- 기존 품목의 변경(CHANGE_DATE)은 이 방식으로 감지되지 않는다 → 앱 버전 업데이트 시 번들 DB를 재생성하거나, 주기적 전체 재수집(52회)을 별도로 둔다.
+- 앱 실행 시 백그라운드로 실행, 실패해도 기존 DB로 정상 동작. 호출 한도/키 노출 위험은 감수하되 추후 프록시로 교체 가능하게 `RemoteSyncClient` 프로토콜로 분리.
+
+## DB 스키마 (실제 필드 기반)
 ```sql
 CREATE TABLE pill (
-  item_seq      TEXT PRIMARY KEY,   -- 품목일련번호
-  name          TEXT NOT NULL,
-  company       TEXT,
-  shape         TEXT,               -- 의약품 모양
-  color_front   TEXT,
-  color_back    TEXT,
-  form          TEXT,               -- 제형 (정제/캡슐 등)
-  line_front    TEXT,               -- 분할선
-  line_back     TEXT,
-  imprint_front TEXT,
-  imprint_back  TEXT,
-  length_mm REAL, width_mm REAL, thick_mm REAL,
-  image_url     TEXT,
-  class_name    TEXT,               -- 분류명
-  etc_otc       TEXT                -- 전문/일반
+  item_seq        TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  eng_name        TEXT,
+  company         TEXT,
+  chart           TEXT,             -- 성상 설명문
+  shape           TEXT,             -- DRUG_SHAPE
+  color1          TEXT,             -- 원본 보존
+  color2          TEXT,
+  form            TEXT,             -- FORM_CODE_NAME
+  print_front     TEXT,             -- 원본
+  print_back      TEXT,
+  imprint_front_norm TEXT,          -- 정규화(분할선/마크 토큰 제거, 대문자)
+  imprint_back_norm  TEXT,
+  line_front      TEXT,
+  line_back       TEXT,
+  len_long REAL, len_short REAL, thick REAL,
+  image_url       TEXT,
+  img_regist_ts   TEXT,             -- YYYYMMDD, 증분 동기화 기준
+  change_date     TEXT,
+  class_name      TEXT,
+  etc_otc         TEXT,
+  ambiguous       INTEGER DEFAULT 0 -- 사진 교차검증 결과 모호 플래그(선택)
 );
-CREATE INDEX idx_pill_shape_color ON pill(shape, color_front);
+CREATE TABLE pill_color (item_seq TEXT, color TEXT);  -- 복합 색을 분해 ("노랑, 투명" → 노랑, 투명)
+CREATE INDEX idx_pill_shape ON pill(shape);
+CREATE INDEX idx_pill_color ON pill_color(color, item_seq);
 CREATE VIRTUAL TABLE pill_imprint_fts USING fts5(
-  imprint_front, imprint_back, content='pill', content_rowid='rowid'
+  imprint_front_norm, imprint_back_norm, content='pill', content_rowid='rowid'
 );
+CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT); -- last_synced_date 등
 ```
-컬럼명은 공공데이터 실제 필드 확인 후 확정한다.
+
+## 사진 활용 방침
+- 후보 목록에 **참고 사진을 표시**한다 (원격 URL + 디스크 캐시, 오프라인이면 텍스트만).
+- 사진 비전 분석(색/모양/각인 OCR)은 **DB 적재 단계(tools/)에서 1회** 수행해 컬럼으로 저장하고, API 분류와 불일치하면 `ambiguous` 플래그로 검색 시 둘 다 허용한다. 앱 내 증분 업데이트에서는 사진 분석을 하지 않는다.
+- 이미지 유사도(feature print)는 1순위 매칭이 아니라 후보 재정렬 보조로만 검토한다.
 
 ## 개발 단계
 1. **데이터**: `tools/build_db.py`로 pills.sqlite 생성
@@ -103,4 +144,5 @@ CREATE VIRTUAL TABLE pill_imprint_fts USING fts5(
 
 ## 결정 사항 / 미결정
 - 확정: SwiftUI, GRDB, XcodeGen, 서버 없음
-- 미결정: 최소 iOS 버전(17 가정), 사용자 데이터(SwiftData) 도입 시점, 공공데이터 수령 방식(API vs CSV)
+- 확정: 데이터는 공공데이터포털 API(전체 수집 + 일자별 증분)
+- 미결정: 최소 iOS 버전(17 가정), 사용자 데이터(SwiftData) 도입 시점
