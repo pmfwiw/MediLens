@@ -5,30 +5,42 @@ final class PillRepository: PillRepositoryProtocol {
     private let db: PillDatabase
     init(db: PillDatabase) { self.db = db }
 
+    /// search/count 가 같은 조건 해석을 쓰도록 JOIN/WHERE 를 한곳에서 만든다.
+    private func filter(_ q: PillQuery) -> (join: String, where: String, args: StatementArguments) {
+        var join = ""
+        var args = StatementArguments()
+        var wheres: [String] = []
+
+        let imprint = ImprintNormalizer.normalize(q.imprint)
+        if !imprint.isEmpty {
+            join = " JOIN pill_imprint_fts f ON f.rowid = p.rowid"
+            // 앞/뒤 각인 어느 쪽이든 접두 일치. 따옴표는 제거해 FTS 구문 오류를 막는다.
+            wheres.append("pill_imprint_fts MATCH ?")
+            args += ["\"\(imprint.replacingOccurrences(of: "\"", with: ""))\"*"]
+        }
+        if let shape = q.shape { wheres.append("p.shape = ?"); args += [shape] }
+        if let form = q.form { wheres.append("p.form = ?"); args += [form] }
+        for color in q.colors.sorted() {
+            wheres.append("EXISTS (SELECT 1 FROM pill_color c WHERE c.item_seq = p.item_seq AND c.color = ?)")
+            args += [color]
+        }
+        return (join, wheres.isEmpty ? "" : " WHERE " + wheres.joined(separator: " AND "), args)
+    }
+
     func search(_ q: PillQuery) throws -> [Pill] {
         try db.pool.read { conn in
-            var sql = "SELECT p.* FROM pill p"
-            var args = StatementArguments()
-            var wheres: [String] = []
-
-            let imprint = ImprintNormalizer.normalize(q.imprint)
-            if !imprint.isEmpty {
-                sql += " JOIN pill_imprint_fts f ON f.rowid = p.rowid"
-                // 앞/뒤 각인 어느 쪽이든 부분 일치 (접두 검색)
-                wheres.append("pill_imprint_fts MATCH ?")
-                args += ["\"\(imprint.replacingOccurrences(of: "\"", with: ""))\"*"]
-            }
-            if let shape = q.shape { wheres.append("p.shape = ?"); args += [shape] }
-            if let form = q.form { wheres.append("p.form = ?"); args += [form] }
-            for color in q.colors.sorted() {
-                wheres.append("EXISTS (SELECT 1 FROM pill_color c WHERE c.item_seq = p.item_seq AND c.color = ?)")
-                args += [color]
-            }
-            if !wheres.isEmpty { sql += " WHERE " + wheres.joined(separator: " AND ") }
-            sql += " ORDER BY p.name LIMIT ?"
+            let f = filter(q)
+            var args = f.args
             args += [q.limit]
-
+            let sql = "SELECT p.* FROM pill p" + f.join + f.where + " ORDER BY p.name LIMIT ?"
             return try Row.fetchAll(conn, sql: sql, arguments: args).map { try self.pill(from: $0, conn) }
+        }
+    }
+
+    func count(_ q: PillQuery) throws -> Int {
+        try db.pool.read { conn in
+            let f = filter(q)
+            return try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM pill p" + f.join + f.where, arguments: f.args) ?? 0
         }
     }
 

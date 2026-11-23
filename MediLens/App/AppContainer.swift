@@ -5,7 +5,6 @@ final class AppContainer {
     let repository: PillRepositoryProtocol
     let searchPills: SearchPillsUseCase
     let syncService: PillSyncService?
-    @MainActor let syncStatus = SyncStatusModel()
 
     init(repository: PillRepositoryProtocol, syncService: PillSyncService? = nil) {
         self.repository = repository
@@ -27,21 +26,5 @@ final class AppContainer {
         let v = Bundle.main.object(forInfoDictionaryKey: "DataGoKrKey") as? String
         guard let v, !v.isEmpty, !v.hasPrefix("$(") else { return nil }
         return v
-    }
-
-    /// 앱 실행 직후 백그라운드로 호출. UI는 기존 DB로 즉시 사용 가능하다.
-    @MainActor func startSync() async {
-        guard let syncService else { return }
-        syncStatus.state = .syncing
-        let outcome = await syncService.run()
-        switch outcome {
-        case .synced(let n):
-            syncStatus.state = .finished(added: n); syncStatus.revision += 1
-        case .partial(let n, _):
-            syncStatus.state = .failed
-            if n > 0 { syncStatus.revision += 1 }
-        case .failed: syncStatus.state = .failed
-        case .skipped, .upToDate: syncStatus.state = .idle
-        }
     }
 }
