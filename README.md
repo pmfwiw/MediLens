@@ -4,7 +4,8 @@ MediLens: 알약 사진 한 장으로 의약품을 식별합니다. 식약처 �
 ## 시작하기 (Mac)
 ```bash
 brew install xcodegen
-export DATA_GO_KR_KEY=...                        # 공공데이터포털 키 (커밋 금지)
+cp Config/Secrets.xcconfig.example Config/Secrets.xcconfig   # 앱 내 동기화용 키 입력 (커밋 금지)
+export DATA_GO_KR_KEY=...                        # DB 생성 스크립트용 (커밋 금지)
 python3 tools/build_db.py --save-json tools/cache/all.json
 xcodegen generate && open MediLens.xcodeproj
 ```

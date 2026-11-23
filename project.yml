@@ -18,13 +18,19 @@ targets:
         buildPhase: resources
     dependencies:
       - package: GRDB
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    info:
+      path: MediLens/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSCameraUsageDescription: "알약 사진을 촬영해 의약품을 식별하기 위해 카메라를 사용합니다."
+        DataGoKrKey: $(DATA_GO_KR_KEY)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.MediLens
         SWIFT_VERSION: "5.9"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: "알약 사진을 촬영해 의약품을 식별하기 위해 카메라를 사용합니다."
         TARGETED_DEVICE_FAMILY: "1"
   MediLensTests:
     type: bundle.unit-test

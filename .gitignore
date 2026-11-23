@@ -10,3 +10,4 @@ Secrets.xcconfig
 # Generated data (tools/build_db.py)
 MediLens/Data/Resources/pills.sqlite
 tools/cache/
+MediLens/Info.plist

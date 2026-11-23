@@ -6,7 +6,7 @@
   python3 tools/build_db.py --from-json tools/cache/all.json   # 캐시된 응답 사용
 키는 환경 변수로만 받는다 (커밋 금지).
 """
-import argparse, json, os, re, sqlite3, sys, time, urllib.parse, urllib.request
+import argparse, datetime, json, os, re, sqlite3, sys, time, urllib.parse, urllib.request
 
 ENDPOINT = "https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService03/getMdcinGrnIdntfcInfoList03"
 PAGE = 500
@@ -69,7 +69,7 @@ def split_colors(*vals):
             if c and c not in seen: seen.append(c)
     return seen
 
-def build(items, out_path):
+def build(items, out_path, synced=None):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     if os.path.exists(out_path): os.remove(out_path)
     db = sqlite3.connect(out_path)
@@ -92,8 +92,10 @@ def build(items, out_path):
             db.execute("INSERT INTO pill_color VALUES (?,?)", (i["ITEM_SEQ"], c))
     db.execute("INSERT INTO pill_imprint_fts(rowid,imprint_front_norm,imprint_back_norm) "
                "SELECT rowid,imprint_front_norm,imprint_back_norm FROM pill")
-    last = db.execute("SELECT MAX(img_regist_ts) FROM pill").fetchone()[0]
+    # API로 수집했다면 '오늘(KST)'까지 동기화된 것, 캐시 파일이면 데이터의 최신 등록일 기준.
+    last = synced or db.execute("SELECT MAX(img_regist_ts) FROM pill").fetchone()[0]
     db.execute("INSERT INTO sync_meta VALUES ('last_synced_date', ?)", (last,))
+    db.execute("INSERT INTO sync_meta VALUES ('bundle_date', ?)", (last,))  # 앱 업데이트 시 번들 DB 교체 판단용
     db.commit()
     n = db.execute("SELECT COUNT(*) FROM pill").fetchone()[0]
     db.execute("VACUUM"); db.close()
@@ -112,4 +114,6 @@ if __name__ == "__main__":
     if a.save_json:
         os.makedirs(os.path.dirname(a.save_json) or ".", exist_ok=True)
         json.dump(items, open(a.save_json, "w"), ensure_ascii=False)
-    build(items, os.path.abspath(a.out))
+    synced = None if a.from_json else (
+        datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y%m%d"))
+    build(items, os.path.abspath(a.out), synced)

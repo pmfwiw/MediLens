@@ -6,7 +6,7 @@ final class PillRepository: PillRepositoryProtocol {
     init(db: PillDatabase) { self.db = db }
 
     func search(_ q: PillQuery) throws -> [Pill] {
-        try db.queue.read { conn in
+        try db.pool.read { conn in
             var sql = "SELECT p.* FROM pill p"
             var args = StatementArguments()
             var wheres: [String] = []
@@ -33,19 +33,19 @@ final class PillRepository: PillRepositoryProtocol {
     }
 
     func pill(id: String) throws -> Pill? {
-        try db.queue.read { conn in
+        try db.pool.read { conn in
             try Row.fetchOne(conn, sql: "SELECT * FROM pill WHERE item_seq = ?", arguments: [id])
                 .map { try self.pill(from: $0, conn) }
         }
     }
 
     func distinctShapes() throws -> [String] {
-        try db.queue.read { try String.fetchAll($0, sql:
+        try db.pool.read { try String.fetchAll($0, sql:
             "SELECT shape FROM pill WHERE shape IS NOT NULL GROUP BY shape ORDER BY COUNT(*) DESC") }
     }
 
     func distinctColors() throws -> [String] {
-        try db.queue.read { try String.fetchAll($0, sql:
+        try db.pool.read { try String.fetchAll($0, sql:
             "SELECT color FROM pill_color GROUP BY color ORDER BY COUNT(*) DESC") }
     }
 

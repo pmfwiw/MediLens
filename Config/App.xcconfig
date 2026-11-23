@@ -1,0 +1,2 @@
+// 비밀 값은 Secrets.xcconfig 에 둔다 (gitignore). 없으면 동기화만 비활성화된다.
+#include? "Secrets.xcconfig"

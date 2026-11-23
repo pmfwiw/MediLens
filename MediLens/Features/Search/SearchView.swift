@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SearchView: View {
     @State var model: SearchViewModel
+    var sync: SyncStatusModel
 
     var body: some View {
         NavigationStack {
@@ -35,6 +36,16 @@ struct SearchView: View {
             .navigationDestination(for: Pill.self) { PillDetailView(pill: $0) }
             .onAppear { model.loadOptions() }
             .onChange(of: model.query) { model.search() }
+            .onChange(of: sync.revision) { model.loadOptions(); model.search() }   // 동기화로 새 데이터 반영
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    switch sync.state {
+                    case .syncing: ProgressView()
+                    case .finished(let n): Label("\(n)건 업데이트", systemImage: "checkmark.circle").font(.caption)
+                    default: EmptyView()
+                    }
+                }
+            }
         }
     }
 }
