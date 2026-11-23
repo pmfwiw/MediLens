@@ -50,6 +50,15 @@ final class PillMatcherTests: XCTestCase {
         XCTAssertGreaterThan(matcher.score(one, cap)!.score, matcher.score(wrong, cap)!.score)
     }
 
+    func testSingleCharacterImprintsDoNotMatchByAccident() {
+        // "SMT"를 읽었을 때 한 글자짜리 각인 "T"/"M"이 일부 일치로 잡히면 안 된다
+        let readings = [ImprintReading(text: "SMT", confidence: 0.9)]
+        XCTAssertLessThan(PillMatcher.imprintScore(readings, pill("1", shape: "원형", colors: [], front: "T")), 0.4)
+        XCTAssertLessThan(PillMatcher.imprintScore(readings, pill("2", shape: "원형", colors: [], front: "M")), 0.4)
+        // 실제 각인 "SMT50"의 앞부분만 읽은 경우는 부분 일치로 인정
+        XCTAssertGreaterThan(PillMatcher.imprintScore(readings, pill("3", shape: "원형", colors: [], front: "SMT50")), 0.55)
+    }
+
     func testSizeScoreTolerance() {
         XCTAssertEqual(PillMatcher.sizeScore(measured: 10, actual: 10), 1)
         XCTAssertEqual(PillMatcher.sizeScore(measured: 13, actual: 10), 0, accuracy: 0.001)

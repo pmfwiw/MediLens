@@ -72,7 +72,7 @@ struct PillMatcher {
             let s = Self.imprintScore(obs.imprints, pill)
             // 각인은 "읽혔는데 안 맞는" 경우만 감점. 못 읽었으면 가중치에 넣지 않는다.
             total += weights.imprint * s; weightSum += weights.imprint
-            if s >= 0.8 { reasons.append("각인 일치") } else if s >= 0.4 { reasons.append("각인 일부 일치") }
+            if s >= 0.8 { reasons.append("각인 일치") } else if s >= 0.5 { reasons.append("각인 일부 일치") }
         }
         if let mm = obs.longAxisMM, let long = pill.lengthLong, long > 0 {
             let s = Self.sizeScore(measured: mm, actual: long)
@@ -109,7 +109,7 @@ struct PillMatcher {
         return min(s, 1)
     }
 
-    /// OCR 결과와 약의 앞/뒤 각인을 비교. 정규화 후 완전일치 > 부분포함 > 편집거리 유사도 순.
+    /// OCR 결과와 약의 앞/뒤 각인을 비교. 정규화 후 완전일치 > 부분포함(2글자 이상) > 편집거리 유사도 순.
     static func imprintScore(_ readings: [ImprintReading], _ pill: Pill) -> Double {
         let targets = [pill.printFront, pill.printBack].compactMap { $0 }
             .map(ImprintNormalizer.normalize).filter { !$0.isEmpty }
@@ -121,8 +121,12 @@ struct PillMatcher {
             for t in targets {
                 let sim: Double
                 if read == t { sim = 1 }
-                else if t.contains(read) || read.contains(t) {
-                    sim = 0.6 + 0.3 * Double(min(read.count, t.count)) / Double(max(read.count, t.count))
+                else if read.count >= 2, t.contains(read) {
+                    // OCR이 실제 각인의 일부만 읽은 경우. 한 글자만 읽은 경우는 우연 일치가 너무 많아 제외.
+                    sim = 0.5 + 0.4 * Double(read.count) / Double(t.count)
+                } else if t.count >= 2, read.contains(t) {
+                    // 실제 각인 주변의 잡음까지 같이 읽은 경우.
+                    sim = 0.3 + 0.4 * Double(t.count) / Double(read.count)
                 } else {
                     let d = editDistance(Array(read), Array(t))
                     sim = max(0, 1 - Double(d) / Double(max(read.count, t.count))) * 0.8

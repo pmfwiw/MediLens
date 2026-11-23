@@ -1,7 +1,7 @@
 import Foundation
 
 /// 속성 기반 검색 조건. nil/빈 값은 조건 없음.
-struct PillQuery: Equatable {
+struct PillQuery: Hashable {
     var shape: String?
     var colors: Set<String> = []
     var imprint: String = ""      // 원본 입력, 정규화는 Repository에서 수행

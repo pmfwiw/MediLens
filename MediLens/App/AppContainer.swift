@@ -5,9 +5,14 @@ final class AppContainer {
     let repository: PillRepositoryProtocol
     let searchPills: SearchPillsUseCase
     let syncService: PillSyncService?
+    let recognizer: PillRecognizing
+    let identifyPills: IdentifyPillsUseCase
 
-    init(repository: PillRepositoryProtocol, syncService: PillSyncService? = nil) {
+    init(repository: PillRepositoryProtocol, syncService: PillSyncService? = nil,
+         recognizer: PillRecognizing = UnavailableRecognizer()) {
         self.repository = repository
+        self.recognizer = recognizer
+        self.identifyPills = IdentifyPillsUseCase(repository: repository)
         self.searchPills = SearchPillsUseCase(repository: repository)
         self.syncService = syncService
     }
@@ -18,7 +23,12 @@ final class AppContainer {
         if let key = apiKey() {   // 키가 없으면 동기화만 비활성화, 내장 DB로 정상 동작
             sync = PillSyncService(remote: DataGoKrClient(apiKey: key), store: PillSyncStore(db: db))
         }
-        return AppContainer(repository: PillRepository(db: db), syncService: sync)
+        #if DEBUG
+        let recognizer: PillRecognizing = DemoRecognizer()      // 비전 구현 전: 디버그에서만 데모 결과로 화면 확인
+        #else
+        let recognizer: PillRecognizing = UnavailableRecognizer()
+        #endif
+        return AppContainer(repository: PillRepository(db: db), syncService: sync, recognizer: recognizer)
     }
 
     /// Config/Secrets.xcconfig 의 DATA_GO_KR_KEY 가 Info.plist(DataGoKrKey)로 주입된다.

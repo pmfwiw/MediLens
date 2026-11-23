@@ -4,8 +4,8 @@ struct FinderFlowView: View {
     @State private var model: FinderViewModel
     @Environment(\.dismiss) private var dismiss
 
-    init(container: AppContainer) {
-        _model = State(initialValue: FinderViewModel(container: container))
+    init(container: AppContainer, initial: PillQuery = PillQuery()) {
+        _model = State(initialValue: FinderViewModel(container: container, initial: initial))
     }
 
     var body: some View {

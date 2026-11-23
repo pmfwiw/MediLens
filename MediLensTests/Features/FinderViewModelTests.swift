@@ -5,6 +5,7 @@ private final class FakeRepository: PillRepositoryProtocol {
     var lastQuery = PillQuery()
     func search(_ query: PillQuery) throws -> [Pill] { lastQuery = query; return [] }
     func count(_ query: PillQuery) throws -> Int { lastQuery = query; return query.shape == nil ? 100 : 7 }
+    func candidates(shapes: Set<String>, colors: Set<String>, limit: Int) throws -> [Pill] { [] }
     func pill(id: String) throws -> Pill? { nil }
     func distinctShapes() throws -> [String] { ["원형", "타원형"] }
     func distinctColors() throws -> [String] { ["하양", "노랑", "파랑"] }

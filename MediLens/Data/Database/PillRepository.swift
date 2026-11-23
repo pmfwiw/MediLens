@@ -44,6 +44,29 @@ final class PillRepository: PillRepositoryProtocol {
         }
     }
 
+    func candidates(shapes: Set<String>, colors: Set<String>, limit: Int) throws -> [Pill] {
+        try db.pool.read { conn in
+            var wheres: [String] = []
+            var args = StatementArguments()
+            if !shapes.isEmpty {
+                wheres.append("p.shape IN (\(databaseQuestionMarks(count: shapes.count)))")
+                args += StatementArguments(shapes.sorted())
+            }
+            if !colors.isEmpty {
+                wheres.append("EXISTS (SELECT 1 FROM pill_color c WHERE c.item_seq = p.item_seq AND c.color IN (\(databaseQuestionMarks(count: colors.count))))")
+                args += StatementArguments(colors.sorted())
+            }
+            args += [limit]
+            // 색을 후보마다 따로 조회하지 않도록 한 번에 가져온다 (수천 건 조회 시 N+1 방지).
+            let sql = "SELECT p.*, (SELECT group_concat(color) FROM pill_color c WHERE c.item_seq = p.item_seq) AS colors_csv FROM pill p"
+                + (wheres.isEmpty ? "" : " WHERE " + wheres.joined(separator: " AND ")) + " LIMIT ?"
+            return try Row.fetchAll(conn, sql: sql, arguments: args).map { row in
+                let csv: String? = row["colors_csv"]
+                return try self.pill(from: row, conn, colors: csv.map { $0.split(separator: ",").map(String.init) } ?? [])
+            }
+        }
+    }
+
     func pill(id: String) throws -> Pill? {
         try db.pool.read { conn in
             try Row.fetchOne(conn, sql: "SELECT * FROM pill WHERE item_seq = ?", arguments: [id])
@@ -61,9 +84,9 @@ final class PillRepository: PillRepositoryProtocol {
             "SELECT color FROM pill_color GROUP BY color ORDER BY COUNT(*) DESC") }
     }
 
-    private func pill(from r: Row, _ conn: Database) throws -> Pill {
+    private func pill(from r: Row, _ conn: Database, colors preloaded: [String]? = nil) throws -> Pill {
         let id: String = r["item_seq"]
-        let colors = try String.fetchAll(conn, sql: "SELECT color FROM pill_color WHERE item_seq = ?", arguments: [id])
+        let colors = try preloaded ?? String.fetchAll(conn, sql: "SELECT color FROM pill_color WHERE item_seq = ?", arguments: [id])
         let url: String? = r["image_url"]
         return Pill(
             id: id, name: r["name"], company: r["company"], chart: r["chart"], shape: r["shape"],

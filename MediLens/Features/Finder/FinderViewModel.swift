@@ -17,7 +17,10 @@ final class FinderViewModel {
     private(set) var results: [Pill] = []
 
     private let container: AppContainer
-    init(container: AppContainer) { self.container = container }
+    init(container: AppContainer, initial: PillQuery = PillQuery()) {
+        self.container = container
+        self.query = initial
+    }
 
     func load() {
         shapes = (try? container.repository.distinctShapes()) ?? []

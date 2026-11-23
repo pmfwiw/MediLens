@@ -4,7 +4,7 @@ import Foundation
 /// (조명, 각도, 음각 각인 때문에 단정할 수 없으므로 매칭 단계에서 확률적으로 합산한다).
 struct PillObservation: Identifiable, Equatable {
     let id: UUID
-    /// 원본 사진 기준 정규화 좌표(0...1)의 경계 상자. 결과 화면에서 약 위치 표시에 쓴다.
+    /// 원본 사진 기준 정규화 좌표(0...1, **좌상단 원점**)의 경계 상자. Vision 좌표(좌하단 원점)는 비전 계층에서 변환한다. 결과 화면에서 약 위치 표시에 쓴다.
     let boundingBox: CGRect
     /// 모양 후보와 확신도(합 1). 예: ["원형": 0.7, "타원형": 0.3]
     var shapes: [String: Double]
@@ -35,4 +35,15 @@ struct PillMatch: Identifiable, Equatable {
     let pill: Pill
     let score: Double            // 0...1
     let reasons: [String]
+}
+
+extension PillObservation {
+    /// 관찰 결과를 "생김새로 찾기" 조건으로 바꿔 수동 수정 화면에 채워 준다.
+    var suggestedQuery: PillQuery {
+        var q = PillQuery()
+        q.shape = shapes.max { $0.value < $1.value }?.key
+        q.colors = Set(colors.sorted { $0.value > $1.value }.prefix(2).map(\.key))
+        q.imprint = imprints.max { $0.confidence < $1.confidence }?.text ?? ""
+        return q
+    }
 }
